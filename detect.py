@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import time
 from absl import app, flags, logging
 from absl.flags import FLAGS
@@ -15,6 +14,7 @@ flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
 flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
                     'path to weights file')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
+flags.DEFINE_integer('size', 416, 'resize images to')
 flags.DEFINE_string('image', './data/girl.png', 'path to input image')
 flags.DEFINE_string('output', './output.jpg', 'path to output image')
 
@@ -33,7 +33,7 @@ def main(_argv):
 
     img = tf.image.decode_image(open(FLAGS.image, 'rb').read(), channels=3)
     img = tf.expand_dims(img, 0)
-    img = transform_images(img, 416)
+    img = transform_images(img, FLAGS.size)
 
     t1 = time.time()
     boxes, scores, classes, nums = yolo(img)
@@ -43,8 +43,8 @@ def main(_argv):
     logging.info('detections:')
     for i in range(nums[0]):
         logging.info('\t{}, {}, {}'.format(class_names[int(classes[0][i])],
-                                           scores[0][i].numpy(),
-                                           boxes[0][i].numpy()))
+                                           np.array(scores[0][i]),
+                                           np.array(boxes[0][i])))
 
     img = cv2.imread(FLAGS.image)
     img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
