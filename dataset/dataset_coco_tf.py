@@ -19,15 +19,15 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs, classes):
         for j in tf.range(tf.shape(y_true)[1]):
             if tf.equal(y_true[i][j][2], 0):
                 continue
-            anchor_eq = tf.equal(
-                anchor_idxs, tf.cast(y_true[i][j][5], tf.int32))
+            anchor_eq = tf.equal(anchor_idxs, tf.cast(y_true[i][j][5],
+                                                      tf.int32))
 
             if tf.reduce_any(anchor_eq):
                 box = y_true[i][j][0:4]
                 box_xy = (y_true[i][j][0:2] + y_true[i][j][2:4]) / 2
 
                 anchor_idx = tf.cast(tf.where(anchor_eq), tf.int32)
-                grid_xy = tf.cast(box_xy // (1/grid_size), tf.int32)
+                grid_xy = tf.cast(box_xy // (1 / grid_size), tf.int32)
 
                 # grid[y][x][anchor] = (tx, ty, bw, bh, obj, class)
                 indexes = indexes.write(
@@ -39,8 +39,8 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs, classes):
     # tf.print(indexes.stack())
     # tf.print(updates.stack())
 
-    return tf.tensor_scatter_nd_update(
-        y_true_out, indexes.stack(), updates.stack())
+    return tf.tensor_scatter_nd_update(y_true_out, indexes.stack(),
+                                       updates.stack())
 
 
 def transform_targets(y_train, anchors, anchor_masks, classes):
@@ -63,8 +63,9 @@ def transform_targets(y_train, anchors, anchor_masks, classes):
     y_train = tf.concat([y_train, anchor_idx], axis=-1)
 
     for anchor_idxs in anchor_masks:
-        y_outs.append(transform_targets_for_output(
-            y_train, grid_size, anchor_idxs, classes))
+        y_outs.append(
+            transform_targets_for_output(y_train, grid_size, anchor_idxs,
+                                         classes))
         grid_size *= 2
 
     return tuple(y_outs)
@@ -102,25 +103,31 @@ def parse_tfrecord(tfrecord, class_table):
     x_train = tf.image.decode_jpeg(x['image/encoded'], channels=3)
     x_train = tf.image.resize(x_train, (416, 416))
 
-    class_text = tf.sparse.to_dense(
-        x['image/object/class/text'], default_value='')
+    class_text = tf.sparse.to_dense(x['image/object/class/text'],
+                                    default_value='')
     labels = tf.cast(class_table.lookup(class_text), tf.float32)
-    y_train = tf.stack([tf.sparse.to_dense(x['image/object/bbox/xmin']),
-                        tf.sparse.to_dense(x['image/object/bbox/ymin']),
-                        tf.sparse.to_dense(x['image/object/bbox/xmax']),
-                        tf.sparse.to_dense(x['image/object/bbox/ymax']),
-                        labels], axis=1)
+    y_train = tf.stack([
+        tf.sparse.to_dense(x['image/object/bbox/xmin']),
+        tf.sparse.to_dense(x['image/object/bbox/ymin']),
+        tf.sparse.to_dense(x['image/object/bbox/xmax']),
+        tf.sparse.to_dense(x['image/object/bbox/ymax']), labels
+    ],
+                       axis=1)
 
     paddings = [[0, 100 - tf.shape(y_train)[0]], [0, 0]]
     y_train = tf.pad(y_train, paddings)
-
     return x_train, y_train
 
 
 def load_tfrecord_dataset(file_pattern, class_file):
     LINE_NUMBER = -1  # TODO: use tf.lookup.TextFileIndex.LINE_NUMBER
-    class_table = tf.lookup.StaticHashTable(tf.lookup.TextFileInitializer(
-        class_file, tf.string, 0, tf.int64, LINE_NUMBER, delimiter="\n"), -1)
+    class_table = tf.lookup.StaticHashTable(
+        tf.lookup.TextFileInitializer(class_file,
+                                      tf.string,
+                                      0,
+                                      tf.int64,
+                                      LINE_NUMBER,
+                                      delimiter="\n"), -1)
 
     files = tf.data.Dataset.list_files(file_pattern)
     dataset = files.flat_map(tf.data.TFRecordDataset)
@@ -128,16 +135,14 @@ def load_tfrecord_dataset(file_pattern, class_file):
 
 
 def load_fake_dataset():
-    x_train = tf.image.decode_jpeg(
-        open('./data/girl.png', 'rb').read(), channels=3)
+    x_train = tf.image.decode_jpeg(open('./data/girl.png', 'rb').read(),
+                                   channels=3)
     x_train = tf.expand_dims(x_train, axis=0)
 
-    labels = [
-        [0.18494931, 0.03049111, 0.9435849,  0.96302897, 0],
-        [0.01586703, 0.35938117, 0.17582396, 0.6069674, 56],
-        [0.09158827, 0.48252046, 0.26967454, 0.6403017, 67]
-    ] + [[0, 0, 0, 0, 0]] * 5
+    labels = [[0.18494931, 0.03049111, 0.9435849, 0.96302897, 0],
+              [0.01586703, 0.35938117, 0.17582396, 0.6069674, 56],
+              [0.09158827, 0.48252046, 0.26967454, 0.6403017, 67]
+              ] + [[0, 0, 0, 0, 0]] * 5
     y_train = tf.convert_to_tensor(labels, tf.float32)
     y_train = tf.expand_dims(y_train, axis=0)
-
     return tf.data.Dataset.from_tensor_slices((x_train, y_train))
