@@ -96,7 +96,6 @@ def YoloConv(filters, name=None):
         if isinstance(x_in, tuple):
             inputs = Input(x_in[0].shape[1:]), Input(x_in[1].shape[1:])
             x, x_skip = inputs
-
             # concat with skip connection
             x = DarknetConv(x, filters, 1)
             x = UpSampling2D(2)(x)
