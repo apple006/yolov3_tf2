@@ -179,4 +179,15 @@ def dict_to_coco_example(img_data):
 
 OK，关于这个转换器，其实你可以轻而易举的从github获取，本仓库包含了一个转换器，在tools里面，地址：http://github.com/jinfagang/yolov3_tf2 .
 
+事实上，关于tfrecord转换被很多人吐槽，同时它也存在很多弊端，它的缺点十分明显：
+
+- 且不说转换麻烦（得写两次脚本），占用的存储空间极大，coco转完可能得有100多个G，总的数据集都没有这么大；
+- check数据比较麻烦。
+
+但是不管怎样，转换为tfrecord却可以极大地提高运行的效率。不过作为一个不喜欢全家桶的，我并不喜欢tensorflow的所有生态。我更喜欢简单的一点的东西。那么我们就写一个及其简单的数据load器吧，我们使用 `tf.data.Dataset.from_data_slice` 这个接口来load数据：
+
+```
+
+```
+
 
