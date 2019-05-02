@@ -38,7 +38,6 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs, classes):
 
     # tf.print(indexes.stack())
     # tf.print(updates.stack())
-
     return tf.tensor_scatter_nd_update(y_true_out, indexes.stack(),
                                        updates.stack())
 
@@ -128,7 +127,6 @@ def load_tfrecord_dataset(file_pattern, class_file):
                                       tf.int64,
                                       LINE_NUMBER,
                                       delimiter="\n"), -1)
-
     files = tf.data.Dataset.list_files(file_pattern)
     dataset = files.flat_map(tf.data.TFRecordDataset)
     return dataset.map(lambda x: parse_tfrecord(x, class_table))
