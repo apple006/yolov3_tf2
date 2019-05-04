@@ -18,12 +18,12 @@ init_logger()
 
 
 def input_map_fn(img, label):
-    pass
+    return img, label
 
 
 def load_coco_2014_dataset(root_dir, batch_size=12):
     imgs_dir = os.path.join(root_dir, 'train2014')
-    anno_f = os.path.join(root_dir, 'annotations', 'instance_train2014.json')
+    anno_f = os.path.join(root_dir, 'annotations', 'instances_train2014.json')
     coco = COCO(anno_f)
 
     # totally 82783 images
@@ -34,9 +34,8 @@ def load_coco_2014_dataset(root_dir, batch_size=12):
     all_imgs = []
     all_labels = []
     for idx, img_id in enumerate(img_ids):
-        if idx % 500 == 0:
-            logging.info('Reading images: %d/%d'%(idx, len(img_ids)))
-        img_info = dict()
+        if idx % 1000 == 0:
+            logging.info('Reading images: %d/%d' % (idx, len(img_ids)))
         bboxes = []
         labels = []
 
@@ -47,29 +46,29 @@ def load_coco_2014_dataset(root_dir, batch_size=12):
         ann_ids = coco.getAnnIds(imgIds=img_id, catIds=cat_ids)
         anns = coco.loadAnns(ann_ids)
 
-        img_path = os.path.join(root_dir, img_detail['file_name'])
+        img_path = os.path.join(imgs_dir, img_detail['file_name'])
         all_imgs.append(img_path)
         for ann in anns:
             bboxes_data = ann['bbox']
             # normalize box
             bboxes_data = [
-                bboxes_data[0]/float(w),
-                bboxes_data[1]/float(h),
-                bboxes_data[2]/float(w),
-                bboxes_data[3]/float(h),
+                bboxes_data[0] / float(w),
+                bboxes_data[1] / float(h),
+                bboxes_data[2] / float(w),
+                bboxes_data[3] / float(h),
             ]
             bboxes.append(bboxes_data)
             labels.append(ann['category_id'])
         all_labels.append(bboxes)
-    train_ds = tf.data.Dataset().from_tensor_slices(
-        (tf.constant(all_images), 
-        tf.constant(all_labels))
-        ).shuffle(buffer_size=10000).map(input_map_fn).batch(batch_size)
+    train_ds = tf.data.Dataset.from_tensor_slices(
+        (tf.constant(all_imgs), tf.constant(all_labels))
+        ).shuffle(buffer_size=1000).map(input_map_fn).batch(batch_size)
     return train_ds
 
 
 if __name__ == "__main__":
-    train_ds = load_coco_2014_dataset()
+    train_ds = load_coco_2014_dataset(sys.argv[1])
+    logging.info('dataset reading complete.')
     for img, label in train_ds.take(1):
         print(img)
         print(label)
