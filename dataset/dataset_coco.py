@@ -7,71 +7,74 @@ using tensorflow 2.0 recommended api
 from pycocotools.coco import COCO
 from PIL import Image
 from random import shuffle
-import os, sys
+import os
+import sys
 import numpy as np
 import tensorflow as tf
-
+import cv2
 from loguru import logger as logging
 from alfred.utils.log import init_logger
 
 init_logger()
+this_dir = os.path.dirname(os.path.abspath(__file__))
 
 
-def input_map_fn(img, label):
-    return img, label
+IMAGE_FEATURE_MAP = {
+    'image/width': tf.io.FixedLenFeature([], tf.int64),
+    'image/height': tf.io.FixedLenFeature([], tf.int64),
+    'image/encoded': tf.io.FixedLenFeature([], tf.string),
+    'image/format': tf.io.FixedLenFeature([], tf.string),
+    'image/object/class/label': tf.io.VarLenFeature(tf.int64),
+    'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+}
 
 
-def load_coco_2014_dataset(root_dir, batch_size=12):
-    imgs_dir = os.path.join(root_dir, 'train2014')
-    anno_f = os.path.join(root_dir, 'annotations', 'instances_train2014.json')
-    coco = COCO(anno_f)
+def parse_tfrecord(tfrecord, class_table):
+    x = tf.io.parse_single_example(tfrecord, IMAGE_FEATURE_MAP)
+    x_train = tf.image.decode_jpeg(x['image/encoded'], channels=3)
+    x_train = tf.image.resize(x_train, (416, 416))
+    # get numpy from x_train
+    label_idx = x['image/object/class/label']
+    labels = tf.sparse.to_dense(label_idx)
+    labels = tf.cast(labels, tf.float32)
+    y_train = tf.stack([
+        tf.sparse.to_dense(x['image/object/bbox/xmin']),
+        tf.sparse.to_dense(x['image/object/bbox/ymin']),
+        tf.sparse.to_dense(x['image/object/bbox/xmax']),
+        tf.sparse.to_dense(x['image/object/bbox/ymax']), 
+        labels
+    ], axis=1)
+    paddings = [[0, 100 - tf.shape(y_train)[0]], [0, 0]]
+    y_train = tf.pad(y_train, paddings)
+    return x_train, y_train
 
-    # totally 82783 images
-    img_ids = coco.getImgIds()
-    # 90 categories (not continues, actually only has 80)
-    cat_ids = coco.getCatIds()
 
-    all_imgs = []
-    all_labels = []
-    for idx, img_id in enumerate(img_ids):
-        if idx % 1000 == 0:
-            logging.info('Reading images: %d/%d' % (idx, len(img_ids)))
-        bboxes = []
-        labels = []
-
-        img_detail = coco.loadImgs(img_id)[0]
-        h = img_detail['height']
-        w = img_detail['width']
-
-        ann_ids = coco.getAnnIds(imgIds=img_id, catIds=cat_ids)
-        anns = coco.loadAnns(ann_ids)
-
-        img_path = os.path.join(imgs_dir, img_detail['file_name'])
-        all_imgs.append(img_path)
-        for ann in anns:
-            bboxes_data = ann['bbox']
-            # normalize box
-            bboxes_data = [
-                bboxes_data[0] / float(w),
-                bboxes_data[1] / float(h),
-                bboxes_data[2] / float(w),
-                bboxes_data[3] / float(h),
-            ]
-            bboxes.append(bboxes_data)
-            labels.append(ann['category_id'])
-        all_labels.append(bboxes)
-    train_ds = tf.data.Dataset.from_tensor_slices(
-        (tf.constant(all_imgs), tf.constant(all_labels))
-        ).shuffle(buffer_size=1000).map(input_map_fn).batch(batch_size)
-    return train_ds
+def load_tfrecord_dataset(file_pattern, class_file):
+    LINE_NUMBER = -1  # TODO: use tf.lookup.TextFileIndex.LINE_NUMBER
+    class_table = tf.lookup.StaticHashTable(
+        tf.lookup.TextFileInitializer(class_file,
+                                      tf.string,
+                                      0,
+                                      tf.int64,
+                                      LINE_NUMBER,
+                                      delimiter="\n"), -1)
+    files = tf.data.Dataset.list_files(file_pattern)
+    dataset = files.flat_map(tf.data.TFRecordDataset)
+    return dataset.map(lambda x: parse_tfrecord(x, class_table))
 
 
 if __name__ == "__main__":
-    train_ds = load_coco_2014_dataset(sys.argv[1])
+    train_ds = load_tfrecord_dataset(sys.argv[1],
+                                     os.path.join(this_dir, 'coco.names'))
     logging.info('dataset reading complete.')
     for img, label in train_ds.take(1):
-        print(img)
-        print(label)
-
+        print(img.numpy())
+        print(label.numpy())
         # start training on model...
+        img = np.array(img.numpy(), np.uint8)
+        cv2.imshow('rr', img)
+        cv2.waitKey(0)
         break

@@ -194,5 +194,85 @@ OK，关于这个转换器，其实你可以轻而易举的从github获取，本
 
 #### coco从tfrecord读取
 
-继续秉承有始有终的理念，既然我们打算用tfrecord存了，那就得用tfrecord读取，上来这条贼船，你就是贼了。。
+继续秉承有始有终的理念，既然我们打算用tfrecord存了，那就得用tfrecord读取. 使用tfrecord读取数据，你需要知道你存储进入tfrecord的键，以及键的值的属性。假设你已经使用我们上面的转换器将coco转换为了tfrecord，接下来我们来读取。但是实现得知道一下这两个概念的区别: `tf.io.FixedLenFeature vs tf.io.VarLenFeature`：
+
+> 简单来说，对于一个example，比如一张图，图里面很多目标，此时不变的参数比如图片的宽高，图片本身等是不变的，就是FixedLenFeature, 剩下的，每一个目标的坐标，类别都是可变的，用VarLenFeature来Parse。
+
+最后大家要记住，我们存入tfrecord的坐标是相对于长宽归一化之后的坐标。而且是`xmin, ymin, xmax, ymax`的格式，示意图如下：
+
+```
+           w        (xmax, 
+ --------------------ymax)
+|                       |
+|                       | h
+|                       |
+|                       |
+(xmin,------------------
+ ymin)
+
+```
+
+这样你就理解了。从tfrecord里面读取的核心代码为：
+
+```python
+IMAGE_FEATURE_MAP = {
+    'image/width': tf.io.FixedLenFeature([], tf.int64),
+    'image/height': tf.io.FixedLenFeature([], tf.int64),
+    'image/encoded': tf.io.FixedLenFeature([], tf.string),
+    'image/format': tf.io.FixedLenFeature([], tf.string),
+    'image/object/class/label': tf.io.VarLenFeature(tf.int64),
+    'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+    'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+}
+
+
+def parse_tfrecord(tfrecord, class_table):
+    x = tf.io.parse_single_example(tfrecord, IMAGE_FEATURE_MAP)
+    x_train = tf.image.decode_jpeg(x['image/encoded'], channels=3)
+    x_train = tf.image.resize(x_train, (416, 416))
+    # get numpy from x_train
+    label_idx = x['image/object/class/label']
+    labels = tf.sparse.to_dense(label_idx)
+    labels = tf.cast(labels, tf.float32)
+    y_train = tf.stack([
+        tf.sparse.to_dense(x['image/object/bbox/xmin']),
+        tf.sparse.to_dense(x['image/object/bbox/ymin']),
+        tf.sparse.to_dense(x['image/object/bbox/xmax']),
+        tf.sparse.to_dense(x['image/object/bbox/ymax']), 
+        labels
+    ], axis=1)
+    paddings = [[0, 100 - tf.shape(y_train)[0]], [0, 0]]
+    y_train = tf.pad(y_train, paddings)
+    return x_train, y_train
+
+```
+读取完之后结果为：
+
+```
+[[[ 55.136402  28.81095    5.887802]
+  [ 57.346348  30.408487  12.177647]
+  [ 63.429108  35.506042  23.28702 ]
+  ...
+  [147.12724  157.8195   244.47337 ]
+  [149.68645  156.49413  244.49413 ]
+  [153.94672  158.59761  247.27217 ]]]
+
+[[3.6451563e-01 5.6343752e-01 6.3064063e-01 9.8710418e-01 6.2000000e+01]
+ [1.5937500e-03 5.8324999e-01 8.3454686e-01 1.0000000e+00 6.7000000e+01]
+ [7.4493748e-01 5.4381251e-01 9.3201560e-01 9.6404165e-01 6.2000000e+01]
+ [1.6859375e-02 5.4172915e-01 1.9550000e-01 8.0014580e-01 6.2000000e+01]
+ [5.7471877e-01 5.5056250e-01 7.9214060e-01 1.0000000e+00 6.2000000e+01]
+ [8.4270310e-01 6.0450000e-01 1.0000000e+00 9.7752082e-01 6.2000000e+01]
+ [5.6937498e-01 5.3452080e-01 6.5165627e-01 5.9002084e-01 6.2000000e+01]
+ [2.3776563e-01 5.3472918e-01 3.6028126e-01 5.9537500e-01 6.2000000e+01]
+ [1.6875000e-03 7.7752084e-01 5.0562501e-02 1.0000000e+00 6.2000000e+01]
+ [4.6593750e-01 4.8993751e-01 5.9564060e-01 5.6093752e-01 8.6000000e+01]]
+```
+
+分别是`x_train` 和 `y_train`. 有这么几点是需要注意的：
+
+- 存入的图片是BGR格式的，并且它的resize会进行int和float之间的转换，这将导致结果和opencv差异！！这听起来似乎不可思议，即便他们使用相同的interplate方法，但这个差异可以暂时忽略！
+- 最后的`y_train`的尺寸是要进行padding的，关于为什么需要padding，主要是为了进行batch，否则你每个批次都不同，因为每张图片目标不同，会出现一些不必要的结果，而padding之后并不影响最终结果。比如我们每张图片都padding到100个目标，其他的填0，是一个不错的策略。
 

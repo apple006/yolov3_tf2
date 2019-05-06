@@ -21,7 +21,7 @@ from alfred.utils.log import init_logger
 init_logger()
 
 
-def int64_feature(value):
+def _int64_feature(value):
     """Wrapper for inserting int64 features into Example proto.
     """
     if not isinstance(value, list):
@@ -29,7 +29,7 @@ def int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
 
 
-def float_feature(value):
+def _float_feature(value):
     """Wrapper for inserting float features into Example proto.
     """
     if not isinstance(value, list):
@@ -37,7 +37,7 @@ def float_feature(value):
     return tf.train.Feature(float_list=tf.train.FloatList(value=value))
 
 
-def bytes_feature(value):
+def _bytes_feature(value):
     """Wrapper for inserting bytes features into Example proto.
     """
     if not isinstance(value, list):
@@ -104,30 +104,33 @@ def load_data(dataset='coco', root_dir=''):
                     # yield data
                 else:
                     logging.error('{} {} does not exist, passing it.'.format(s, year))
+                    logging.error('{} and {} not exist.'.format(imgs_dir, anno_f))
 
     else:
+        # TODO: adding VOC, KITTI, converting
         logging.error('{} not supported yet.'.format(dataset))
 
 
 def data_to_tf_example(img_data):
     bboxes = img_data['bboxes']
     xmin, xmax, ymin, ymax = [], [], [], []
-    for bbox in bboxes:
+    for _, bbox in enumerate(bboxes):
         xmin.append(bbox[0])
         xmax.append(bbox[0] + bbox[2])
         ymin.append(bbox[1])
         ymax.append(bbox[1] + bbox[3])
     example = tf.train.Example(features=tf.train.Features(
         feature={
-            'image/height': int64_feature(img_data['height']),
-            'image/width': int64_feature(img_data['width']),
-            'image/object/bbox/xmin': float_feature(xmin),
-            'image/object/bbox/xmax': float_feature(xmax),
-            'image/object/bbox/ymin': float_feature(ymin),
-            'image/object/bbox/ymax': float_feature(ymax),
-            'image/object/class/label': int64_feature(img_data['labels']),
-            'image/encoded': bytes_feature(img_data['pixel_data']),
-            'image/format': bytes_feature('jpeg'.encode('utf-8')),
+            'image/height': _int64_feature(img_data['height']),
+            'image/width': _int64_feature(img_data['width']),
+            'image/object/bbox/xmin': _float_feature(xmin),
+            'image/object/bbox/xmax': _float_feature(xmax),
+            'image/object/bbox/ymin': _float_feature(ymin),
+            'image/object/bbox/ymax': _float_feature(ymax),
+            # using class id directly, not using label text
+            'image/object/class/label': _int64_feature(img_data['labels']),
+            'image/encoded': _bytes_feature(img_data['pixel_data']),
+            'image/format': _bytes_feature('jpeg'.encode('utf-8')),
         }))
     return example
 
@@ -137,18 +140,20 @@ def convert_coco(root_dir):
     data_iter = load_data(dataset='coco', root_dir=root_dir)
     tfrecord_f = os.path.join(root_dir, 'coco_trainval_20142017.tfrecord')
     logging.info('saving tfrecord to file: {}'.format(tfrecord_f))
+
     with tf.io.TFRecordWriter(tfrecord_f) as tfrecord_writer:
         i = 0
         for data in data_iter:
-            # for idx, img_data in enumerate(subset_data):
-            #     if idx % 100 == 0:
-            #         logging.info('Converting images: %d/%d' %
-            #                      (idx, len(subset_data)))
-            example = data_to_tf_example(data)
-            tfrecord_writer.write(example.SerializeToString())
-            if i % 1000 == 0:
-                logging.info('saved %d examples into tfrecord.' % i)
-            i += 1
+            try:
+                example = data_to_tf_example(data)
+                tfrecord_writer.write(example.SerializeToString())
+                if i % 1000 == 0:
+                    logging.info('saved %d examples into tfrecord.' % i)
+                i += 1
+            except KeyboardInterrupt:
+                logging.info('interrupted... try exit savely..')
+                tfrecord_writer.close()
+                logging.info('Currently converted data saved.')
     logging.info('coco tfrecord generate done.')
 
 
