@@ -11,14 +11,15 @@ I will update it into comptable to both VOC and coco dataset
 from pycocotools.coco import COCO
 from PIL import Image
 from random import shuffle
-import os, sys
+import os
+import sys
 import numpy as np
 import tensorflow as tf
+from alfred.utils.log import logger as logging
 
-from loguru import logger as logging
-from alfred.utils.log import init_logger
 
-init_logger()
+coco_remap_dict = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 11: 10, 13: 11, 14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17, 20: 18, 21: 19, 22: 20, 23: 21, 24: 22, 25: 23, 27: 24, 28: 25, 31: 26, 32: 27, 33: 28, 34: 29, 35: 30, 36: 31, 37: 32, 38: 33, 39: 34, 40: 35, 41: 36, 42: 37, 43: 38, 44: 39,
+                   46: 40, 47: 41, 48: 42, 49: 43, 50: 44, 51: 45, 52: 46, 53: 47, 54: 48, 55: 49, 56: 50, 57: 51, 58: 52, 59: 53, 60: 54, 61: 55, 62: 56, 63: 57, 64: 58, 65: 59, 67: 60, 70: 61, 72: 62, 73: 63, 74: 64, 75: 65, 76: 66, 77: 67, 78: 68, 79: 69, 80: 70, 81: 71, 82: 72, 84: 73, 85: 74, 86: 75, 87: 76, 88: 77, 89: 78, 90: 79}
 
 
 def _int64_feature(value):
@@ -68,7 +69,7 @@ def load_data(dataset='coco', root_dir=''):
                     for idx, img_id in enumerate(img_ids):
                         if idx % 500 == 0:
                             logging.info('Reading images: %d/%d' %
-                                        (idx, len(img_ids)))
+                                         (idx, len(img_ids)))
                         img_info = dict()
                         bboxes = []
                         labels = []
@@ -89,9 +90,11 @@ def load_data(dataset='coco', root_dir=''):
                                 bboxes_data[3] / float(h),
                             ]
                             bboxes.append(bboxes_data)
-                            labels.append(ann['category_id'])
+                            # this category_id should be remap
+                            labels.append(coco_remap_dict[int(ann['category_id'])])
                         # read image data we need
-                        img_path = os.path.join(imgs_dir, img_detail['file_name'])
+                        img_path = os.path.join(
+                            imgs_dir, img_detail['file_name'])
                         img_bytes = open(img_path, 'rb').read()
 
                         img_info['pixel_data'] = img_bytes
@@ -103,8 +106,10 @@ def load_data(dataset='coco', root_dir=''):
                         # data.append(img_info)
                     # yield data
                 else:
-                    logging.error('{} {} does not exist, passing it.'.format(s, year))
-                    logging.error('{} and {} not exist.'.format(imgs_dir, anno_f))
+                    logging.error(
+                        '{} {} does not exist, passing it.'.format(s, year))
+                    logging.error(
+                        '{} and {} not exist.'.format(imgs_dir, anno_f))
 
     else:
         # TODO: adding VOC, KITTI, converting
