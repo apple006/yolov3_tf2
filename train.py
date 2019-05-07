@@ -5,13 +5,15 @@ import numpy as np
 import cv2
 from tensorflow.keras.callbacks import (ReduceLROnPlateau, EarlyStopping,
                                         ModelCheckpoint, TensorBoard)
-from yolov3_tf2.models import (YoloV3, YoloV3Tiny, YoloLoss, yolo_anchors,
+from yolov3.models import (YoloV3, YoloV3Tiny, YoloLoss, yolo_anchors,
                                yolo_anchor_masks, yolo_tiny_anchors,
                                yolo_tiny_anchor_masks)
-from yolov3_tf2.utils import freeze_all
-import dataset.dataset as dataset
+from yolov3.utils import freeze_all
+import dataset.dataset_coco as dataset
 
-flags.DEFINE_string('dataset', '', 'path to dataset')
+
+flags.DEFINE_string('dataset', '/media/jintain/sg/permanent/datasets/coco/*.tfrecord', 
+'dataset tfrecor path')
 flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
 flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
@@ -53,7 +55,7 @@ def main(_argv):
     train_dataset = train_dataset.batch(FLAGS.batch_size)
     train_dataset = train_dataset.map(lambda x, y: (dataset.transform_images(
         x, FLAGS.size), dataset.transform_targets(y, anchors, anchor_masks, 80)
-                                                    ))
+    ))
     train_dataset = train_dataset.prefetch(
         buffer_size=tf.data.experimental.AUTOTUNE)
 
@@ -64,7 +66,7 @@ def main(_argv):
     val_dataset = val_dataset.batch(FLAGS.batch_size)
     val_dataset = val_dataset.map(lambda x, y: (dataset.transform_images(
         x, FLAGS.size), dataset.transform_targets(y, anchors, anchor_masks, 80)
-                                                ))
+    ))
 
     if FLAGS.transfer != 'none':
         model.load_weights(FLAGS.weights)
