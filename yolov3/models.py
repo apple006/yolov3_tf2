@@ -1,22 +1,9 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import (
-    Add,
-    Concatenate,
-    Conv2D,
-    Input,
-    Lambda,
-    LeakyReLU,
-    MaxPool2D,
-    UpSampling2D,
-    ZeroPadding2D,
-)
+from tensorflow.keras.layers import Add, Concatenate, Conv2D, Input, Lambda, LeakyReLU, MaxPool2D, UpSampling2D, ZeroPadding2D
 from tensorflow.keras.regularizers import l2
-from tensorflow.keras.losses import (
-    binary_crossentropy,
-    sparse_categorical_crossentropy
-)
+from tensorflow.keras.losses import binary_crossentropy, sparse_categorical_crossentropy
 from .batch_norm import BatchNormalization
 from .utils import broadcast_iou
 

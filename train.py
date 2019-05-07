@@ -1,26 +1,26 @@
-from absl import app, flags, logging
-from absl.flags import FLAGS
 import tensorflow as tf
 import numpy as np
 import cv2
-from tensorflow.keras.callbacks import (ReduceLROnPlateau, EarlyStopping,
-                                        ModelCheckpoint, TensorBoard)
-from yolov3.models import (YoloV3, YoloV3Tiny, YoloLoss, yolo_anchors,
-                               yolo_anchor_masks, yolo_tiny_anchors,
-                               yolo_tiny_anchor_masks)
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint, TensorBoard
+from absl import app, flags
+from absl.flags import FLAGS
+from alfred.utils.log import logger as logging
+import os
+
+from yolov3.models import *
 from yolov3.utils import freeze_all
 import dataset.dataset_coco as dataset
 
 
-flags.DEFINE_string('dataset', '/media/jintain/sg/permanent/datasets/coco/*.tfrecord', 
-'dataset tfrecor path')
+flags.DEFINE_string('dataset', '/media/jintain/sg/permanent/datasets/coco/*.tfrecord',
+                    'dataset tfrecor path')
 flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
-flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
+flags.DEFINE_string('weights', './checkpoints/yolov3_coco.ckpt-{}',
                     'path to weights file')
 flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
 flags.DEFINE_enum(
-    'mode', 'fit', ['fit', 'eager_fit', 'eager_tf'], 'fit: model.fit, '
+    'mode', 'eager_tf', ['fit', 'eager_fit', 'eager_tf'], 'fit: model.fit, '
     'eager_fit: model.fit(run_eagerly=True), '
     'eager_tf: custom GradientTape')
 flags.DEFINE_enum(
@@ -34,15 +34,19 @@ flags.DEFINE_enum(
 flags.DEFINE_integer('size', 416, 'image size')
 flags.DEFINE_integer('epochs', 2, 'number of epochs')
 flags.DEFINE_integer('batch_size', 8, 'batch size')
+flags.DEFINE_integer('val_per_epoch', 32, 'val_per_epoch')
 flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
+flags.DEFINE_boolean('resume', True, 'resume from checkpoints/, if model not exist, not resume')
 
 
 def main(_argv):
     if FLAGS.tiny:
+        logging.info('using YoloV3 Tiny model.')
         model = YoloV3Tiny(FLAGS.size, training=True)
         anchors = yolo_tiny_anchors
         anchor_masks = yolo_tiny_anchor_masks
     else:
+        logging.info('using YoloV3 model.')
         model = YoloV3(FLAGS.size, training=True)
         anchors = yolo_anchors
         anchor_masks = yolo_anchor_masks
@@ -69,13 +73,10 @@ def main(_argv):
     ))
 
     if FLAGS.transfer != 'none':
-        model.load_weights(FLAGS.weights)
         if FLAGS.transfer == 'fine_tune':
-            # freeze darknet
             darknet = model.get_layer('yolo_darknet')
             freeze_all(darknet)
         elif FLAGS.mode == 'frozen':
-            # freeze everything
             freeze_all(model)
         else:
             # reset top layers
@@ -83,7 +84,6 @@ def main(_argv):
                 init_model = YoloV3Tiny(FLAGS.size, training=True)
             else:
                 init_model = YoloV3(FLAGS.size, training=True)
-
             if FLAGS.transfer == 'darknet':
                 for l in model.layers:
                     if l.name != 'yolo_darknet' and l.name.startswith('yolo_'):
@@ -98,6 +98,15 @@ def main(_argv):
                             init_model.get_layer(l.name).get_weights())
                     else:
                         freeze_all(l)
+    start_epoch = 1
+    if FLAGS.resume:
+        latest_cp = tf.train.latest_checkpoint(os.path.dirname(FLAGS.weights))
+        if latest_cp:
+            start_epoch = int(latest_cp.split('-')[1].split('.')[0])
+            model.load_weights(latest_cp)
+            logging.info('model resumed from: {}, start at epoch: {}'.format(latest_cp, start_epoch))
+        else:
+            logging.info('passing resume since weights not there. training from scratch')
 
     optimizer = tf.keras.optimizers.Adam(lr=FLAGS.learning_rate)
     loss = [YoloLoss(anchors[mask]) for mask in anchor_masks]
@@ -108,37 +117,44 @@ def main(_argv):
         avg_loss = tf.keras.metrics.Mean('loss', dtype=tf.float32)
         avg_val_loss = tf.keras.metrics.Mean('val_loss', dtype=tf.float32)
 
-        for epoch in range(1, FLAGS.epochs + 1):
+        for epoch in range(start_epoch, FLAGS.epochs + 1):
             for batch, (images, labels) in enumerate(train_dataset):
-                with tf.GradientTape() as tape:
-                    outputs = model(images, training=True)
+                try:
+                    with tf.GradientTape() as tape:
+                        outputs = model(images, training=True)
+                        regularization_loss = tf.reduce_sum(model.losses)
+                        pred_loss = []
+                        for output, label, loss_fn in zip(outputs, labels, loss):
+                            pred_loss.append(loss_fn(label, output))
+                        total_loss = tf.reduce_sum(pred_loss) + regularization_loss
+
+                    grads = tape.gradient(total_loss, model.trainable_variables)
+                    optimizer.apply_gradients(zip(grads,
+                                                model.trainable_variables))
+
+                    logging.info("Epoch: {}, iter: {}, total_loss: {}, pred_loss: {}".format(
+                        epoch, batch, total_loss.numpy(),
+                        list(map(lambda x: np.sum(x.numpy()), pred_loss))))
+                    avg_loss.update_state(total_loss)
+                except KeyboardInterrupt:
+                    logging.info('interrupted. try saving model now...')
+                    model.save_weights(FLAGS.weights.format(epoch))
+                    logging.info('model has been saved.')
+                    exit(0)
+
+            if epoch % FLAGS.val_per_epoch == 0 and epoch != 0:
+                for batch, (images, labels) in enumerate(val_dataset):
+                    outputs = model(images)
                     regularization_loss = tf.reduce_sum(model.losses)
                     pred_loss = []
                     for output, label, loss_fn in zip(outputs, labels, loss):
                         pred_loss.append(loss_fn(label, output))
                     total_loss = tf.reduce_sum(pred_loss) + regularization_loss
 
-                grads = tape.gradient(total_loss, model.trainable_variables)
-                optimizer.apply_gradients(zip(grads,
-                                              model.trainable_variables))
-
-                logging.info("{}_train_{}, {}, {}".format(
-                    epoch, batch, total_loss.numpy(),
-                    list(map(lambda x: np.sum(x.numpy()), pred_loss))))
-                avg_loss.update_state(total_loss)
-
-            for batch, (images, labels) in enumerate(val_dataset):
-                outputs = model(images)
-                regularization_loss = tf.reduce_sum(model.losses)
-                pred_loss = []
-                for output, label, loss_fn in zip(outputs, labels, loss):
-                    pred_loss.append(loss_fn(label, output))
-                total_loss = tf.reduce_sum(pred_loss) + regularization_loss
-
-                logging.info("{}_val_{}, {}, {}".format(
-                    epoch, batch, total_loss.numpy(),
-                    list(map(lambda x: np.sum(x.numpy()), pred_loss))))
-                avg_val_loss.update_state(total_loss)
+                    logging.info("{}_val_{}, {}, {}".format(
+                        epoch, batch, total_loss.numpy(),
+                        list(map(lambda x: np.sum(x.numpy()), pred_loss))))
+                    avg_val_loss.update_state(total_loss)
 
             logging.info("{}, train: {}, val: {}".format(
                 epoch,
@@ -147,7 +163,9 @@ def main(_argv):
 
             avg_loss.reset_states()
             avg_val_loss.reset_states()
-            model.save_weights('checkpoints/yolov3_train_{}.tf'.format(epoch))
+            model.save_weights(FLAGS.weights.format(epoch))
+            logging.info('training done.')
+            exit(0)
     else:
         model.compile(optimizer=optimizer,
                       loss=loss,
@@ -161,7 +179,6 @@ def main(_argv):
                             save_weights_only=True),
             TensorBoard(log_dir='logs')
         ]
-
         history = model.fit(train_dataset,
                             epochs=FLAGS.epochs,
                             callbacks=callbacks,

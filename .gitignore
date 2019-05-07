@@ -1,6 +1,6 @@
 *.h5
 *.weights
-/checkpoints/*
+checkpoints/*
 /logs/
 /Untitled.ipynb
 /output.jpg
