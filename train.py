@@ -127,15 +127,13 @@ def main(_argv):
                         for output, label, loss_fn in zip(outputs, labels, loss):
                             pred_loss.append(loss_fn(label, output))
                         total_loss = tf.reduce_sum(pred_loss) + regularization_loss
-
                     grads = tape.gradient(total_loss, model.trainable_variables)
-                    optimizer.apply_gradients(zip(grads,
-                                                model.trainable_variables))
-
-                    logging.info("Epoch: {}, iter: {}, total_loss: {}, pred_loss: {}".format(
-                        epoch, batch, total_loss.numpy(),
-                        list(map(lambda x: np.sum(x.numpy()), pred_loss))))
+                    optimizer.apply_gradients(zip(grads, model.trainable_variables))
                     avg_loss.update_state(total_loss)
+                    
+                    if batch % 10 == 0:
+                        logging.info("Epoch: {}, iter: {}, total_loss: {}, pred_loss: {}".format(
+                        epoch, batch, total_loss.numpy(), list(map(lambda x: np.sum(x.numpy()), pred_loss))))
                 except KeyboardInterrupt:
                     logging.info('interrupted. try saving model now...')
                     model.save_weights(FLAGS.weights.format(epoch))
