@@ -112,8 +112,6 @@ def main(_argv):
     loss = [YoloLoss(anchors[mask]) for mask in anchor_masks]
 
     if FLAGS.mode == 'eager_tf':
-        # Eager mode is great for debugging
-        # Non eager graph mode is recommended for real training
         avg_loss = tf.keras.metrics.Mean('loss', dtype=tf.float32)
         avg_val_loss = tf.keras.metrics.Mean('val_loss', dtype=tf.float32)
 
@@ -134,12 +132,17 @@ def main(_argv):
                     if batch % 10 == 0:
                         logging.info("Epoch: {}, iter: {}, total_loss: {}, pred_loss: {}".format(
                         epoch, batch, total_loss.numpy(), list(map(lambda x: np.sum(x.numpy()), pred_loss))))
+                    if batch % 500 == 0:
+                        logging.info('save model periodically...')
+                        model.save_weights(FLAGS.weights.format(epoch))
                 except KeyboardInterrupt:
                     logging.info('interrupted. try saving model now...')
                     model.save_weights(FLAGS.weights.format(epoch))
                     logging.info('model has been saved.')
                     exit(0)
-
+                except Exception as e:
+                    logging.info('got an unexpected error: {}, continue...'.format(e))
+                    continue
             if epoch % FLAGS.val_per_epoch == 0 and epoch != 0:
                 for batch, (images, labels) in enumerate(val_dataset):
                     outputs = model(images)
@@ -153,7 +156,6 @@ def main(_argv):
                         epoch, batch, total_loss.numpy(),
                         list(map(lambda x: np.sum(x.numpy()), pred_loss))))
                     avg_val_loss.update_state(total_loss)
-
             logging.info("{}, train: {}, val: {}".format(
                 epoch,
                 avg_loss.result().numpy(),
@@ -168,7 +170,6 @@ def main(_argv):
         model.compile(optimizer=optimizer,
                       loss=loss,
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
-
         callbacks = [
             ReduceLROnPlateau(verbose=1),
             EarlyStopping(patience=3, verbose=1),

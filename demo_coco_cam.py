@@ -2,21 +2,30 @@ import time
 from absl import app, flags, logging
 from absl.flags import FLAGS
 import cv2
+import numpy as np
 import tensorflow as tf
-from yolov3_tf2.models import (
-    YoloV3, YoloV3Tiny
-)
-from yolov3_tf2.dataset import transform_images
-from yolov3_tf2.utils import draw_outputs
+from yolov3.models import YoloV3, YoloV3Tiny
+from yolov3.dataset import transform_images
+from yolov3.utils import draw_outputs
+from google.protobuf import text_format
+from alfred.protos.labelmap_pb2 import LabelMap
 
 
-flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
-flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
+flags.DEFINE_string('classes', './data/coco.prototxt', 'path to classes file')
+flags.DEFINE_string('weights', './checkpoints/yolov3_coco.ckpt',
                     'path to weights file')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
 flags.DEFINE_integer('size', 416, 'resize images to')
-flags.DEFINE_string('video', './data/video.mp4',
-                    'path to video file or number for webcam)')
+flags.DEFINE_string('image', './data/girl.png', 'path to input image')
+flags.DEFINE_string('output', './output.jpg', 'path to output image')
+
+
+def get_coco_names(proto_f):
+    with open(proto_f, 'r') as f:
+        lm = LabelMap()
+        lm = text_format.Merge(str(f.read()), lm)
+        names_list = [i.display_name for i in lm.item]
+        return names_list
 
 
 def main(_argv):
