@@ -7,13 +7,18 @@ from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCh
 from absl import app, flags
 from absl.flags import FLAGS
 from alfred.utils.log import logger as logging
+from google.protobuf import text_format
+from alfred.protos.labelmap_pb2 import LabelMap
 
 from yolov3.models import *
-from yolov3.utils import freeze_all
+from yolov3.utils import freeze_all, draw_outputs
 import dataset.dataset_coco as dataset
 
 
-flags.DEFINE_string('dataset', '/media/jintain/wd/permenant/datasets/coco/*.tfrecord',
+tf.config.gpu.set_per_process_memory_growth(enabled=True)
+
+
+flags.DEFINE_string('dataset', '/media/jintian/netac/permanent/datasets/coco/*.tfrecord',
                     'dataset tfrecor path')
 flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
@@ -35,10 +40,18 @@ flags.DEFINE_enum(
     'fine_tune: Transfer all and freeze darknet only')
 flags.DEFINE_integer('size', 416, 'image size')
 flags.DEFINE_integer('epochs', 102, 'number of epochs')
-flags.DEFINE_integer('batch_size', 8, 'batch size')
+flags.DEFINE_integer('batch_size', 4, 'batch size')
 flags.DEFINE_integer('val_per_epoch', 32, 'val_per_epoch')
 flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
 flags.DEFINE_boolean('resume', True, 'resume from checkpoints/, if model not exist, not resume')
+
+
+def get_coco_names(proto_f):
+    with open(proto_f, 'r') as f:
+        lm = LabelMap()
+        lm = text_format.Merge(str(f.read()), lm)
+        names_list = [i.display_name for i in lm.item]
+        return names_list
 
 
 def main(_argv):
@@ -71,12 +84,14 @@ def main(_argv):
 
     val_dataset = dataset.load_fake_dataset()
     if FLAGS.val_dataset:
-        val_dataset = dataset.load_tfrecord_dataset(FLAGS.val_dataset,
+        val_dataset = dataset.load_tfrecord_dataset(FLAGS.val_dat9aset,
                                                     FLAGS.classes)
     val_dataset = val_dataset.batch(FLAGS.batch_size)
     val_dataset = val_dataset.map(lambda x, y: (dataset.transform_images(
         x, FLAGS.size), dataset.transform_targets(y, anchors, anchor_masks, 80)
     ))
+
+    # how to limit GPU usage in tensorflow 2?
 
     if FLAGS.transfer != 'none':
         if FLAGS.transfer == 'fine_tune':
@@ -138,9 +153,13 @@ def main(_argv):
                     if batch % 10 == 0:
                         logging.info("Epoch: {}, iter: {}, total_loss: {:.4f}, pred_loss: {}".format(
                         epoch, batch, total_loss.numpy(), list(map(lambda x: np.sum(x.numpy()), pred_loss))))
+                        test_img = images[0]
+                        test_model(test_img, epoch, batch)
+
                     if batch % 500 == 0 and batch != 0:
                         logging.info('save model periodically...')
                         model.save_weights(FLAGS.weights.format(epoch))
+                        # inference to see the result
                 except KeyboardInterrupt:
                     logging.info('interrupted. try saving model now...')
                     model.save_weights(FLAGS.weights.format(epoch))
@@ -191,6 +210,25 @@ def main(_argv):
                             callbacks=callbacks,
                             validation_data=val_dataset)
 
+def test_model(img, epoch, batch):
+    os.makedirs('results', exist_ok=True)
+    class_names = get_coco_names('dataset/coco.prototxt')
+    assert isinstance(img, tf.Tensor), 'img must be an tensor of image'
+    model = YoloV3(FLAGS.size, training=False)
+    latest_cp = tf.train.latest_checkpoint(os.path.dirname(FLAGS.weights))
+    if latest_cp:
+        model.load_weights(latest_cp)
+        logging.info('testing model from: {}'.format(latest_cp))
+    else:
+        logging.info('can not find latest model')
+    out = model(tf.expand_dims(img, axis=0))
+    # drawing out on test image
+    # print(out)
+    img = np.array(img.numpy()*255., dtype=np.uint8)
+    res = draw_outputs(img, out, class_names)
+    cv2.imwrite('results/img_{}_{}.png'.format(epoch, batch), img)
+    cv2.imwrite('results/predict_{}_{}.png'.format(epoch, batch), res)
+    del model
 
 if __name__ == '__main__':
     try:

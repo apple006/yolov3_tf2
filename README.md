@@ -37,6 +37,8 @@ INFO 05-09 16:28:52 train.py:140 - Epoch: 1, iter: 20, total_loss: 1315.7472, pr
 INFO 05-09 16:28:58 train.py:140 - Epoch: 1, iter: 30, total_loss: 658.0850, pred_loss: [110.5262, 140.95578, 391.42163]
 ```
 As you may notice, the training process if very shock in the start of training time. We will update some results after training.
+After trained serveral epochs, there were no evidence that the model is converge. So I think there must be something goes wrong... Try to fix that...
+
 
 ## More
 
